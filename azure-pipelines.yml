@@ -1,0 +1,74 @@
+trigger:
+- master
+
+pool:
+  vmImage: 'windows-latest'
+
+variables:
+  solution: '**/*.sln'
+  buildPlatform: 'Any CPU'
+  buildConfiguration: 'Release'
+
+steps:
+- task: UseDotNet@2
+  displayName: 'Install .NET SDK'
+  inputs:
+    version: '7.0.x'
+    packageType: sdk
+
+- task: NodeTool@0
+  displayName: 'Install Node.js'
+  inputs:
+    versionSpec: '18.x' # You can change this to '20.x' if you prefer Node v20
+
+- script: npm install -g yarn
+  displayName: 'Install Yarn'
+
+- task: DotNetCoreCLI@2
+  displayName: 'Install Volo.Abp.Cli global tool'
+  inputs:
+    command: 'custom'
+    custom: 'tool'
+    arguments: 'install --global Volo.Abp.Cli'
+
+- script: |
+    cd $(Build.SourcesDirectory)
+    abp install-libs
+  displayName: 'Install ABP libs and restore client-side packages'
+
+- task: DotNetCoreCLI@2
+  displayName: 'Restore NuGet packages for the solution'
+  inputs:
+    command: 'restore'
+    projects: '**/*.csproj'
+
+- task: DotNetCoreCLI@2
+  displayName: 'Build the solution'
+  inputs:
+    command: 'build'
+    arguments: '--configuration $(buildConfiguration) --no-restore'
+    projects: '$(solution)'
+
+- task: DotNetCoreCLI@2
+  displayName: 'Run Database Migrations'
+  inputs:
+    command: custom
+    custom: 'run'
+    arguments: '--project Acme.BookStore.DbMigrator'
+    workingDirectory: 'Acme.BookStore.DbMigrator'
+
+- task: DotNetCoreCLI@2
+  displayName: 'Publish the API project'
+  inputs:
+    command: 'publish'
+    publishWebProjects: true
+    arguments: '--configuration $(BuildConfiguration) --output $(Build.ArtifactStagingDirectory)'
+    zipAfterPublish: true
+    projects: 'Acme.BookStore.HttpApi.Host/Acme.BookStore.HttpApi.Host.csproj'
+
+- task: PublishBuildArtifacts@1
+  displayName: 'Publish Artifacts'
+  inputs:
+    PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+    ArtifactName: 'drop'
+    publishLocation: 'Container'
